@@ -16,13 +16,14 @@
 int main(int argc, char **argv) {
   upcxx::init();
 
-  // TODO: remove this, when you start writing
-  // parallel implementation.
-  if (upcxx::rank_n() > 1) {
-    throw std::runtime_error("Error: parallel implementation not started yet!"
-      " (remove this when you start working.)");
-  }
 
+    /*
+    TODO:
+        1) test UPC to see how "shared/distributed" memory works
+        2) change hashtable class insert and find to partition the array backing the hashtable across n_proc arrays
+        3) find a way to load balance the work
+    */
+    
   if (argc < 2) {
     BUtil::print("usage: srun -N nodes -n ranks ./kmer_hash kmer_file [verbose|test]\n");
     upcxx::finalize();
