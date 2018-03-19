@@ -16,7 +16,7 @@
 HashMap* glob_h;
 
 void glob_insert(const kmer_pair &kmer) {
-    glob_h->insert(kmer);
+    glob_h->queue(kmer);
 }
 
 int main(int argc, char **argv) {
@@ -105,7 +105,9 @@ int main(int argc, char **argv) {
   }
   auto end_insert = std::chrono::high_resolution_clock::now();
   upcxx::barrier();
-
+    hashmap.reduce();
+    upcxx::barrier();
+  fprintf(stderr, "3\n");
   double insert_time = std::chrono::duration <double> (end_insert - start).count();
   if (run_type != "test") {
     BUtil::print("Finished inserting in %lf\n", insert_time);
