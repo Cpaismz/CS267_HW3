@@ -13,6 +13,12 @@
 
 #include "butil.hpp"
 
+HashMap* glob_h;
+
+void glob_insert(const kmer_pair &kmer) {
+    glob_h->insert(kmer);
+}
+
 int main(int argc, char **argv) {
   upcxx::init();
 
@@ -20,10 +26,11 @@ int main(int argc, char **argv) {
     /*
     TODO:
         1) test UPC to see how "shared/distributed" memory works
+            - need to be able to BROADCAST a pointer from rank 0 to the world for things to be shared
         2) change hashtable class insert and find to partition the array backing the hashtable across n_proc arrays
-        3) find a way to load balance the work
+        3) find a way to load balance the work (apparently the kmers are start kmers are approximately evenly distributed, so no global load balancing needed)
     */
-    
+
   if (argc < 2) {
     BUtil::print("usage: srun -N nodes -n ranks ./kmer_hash kmer_file [verbose|test]\n");
     upcxx::finalize();
@@ -47,14 +54,34 @@ int main(int argc, char **argv) {
 
   size_t n_kmers = line_count(kmer_fname);
 
+
+
+
+
   // Load factor of 0.5
   size_t hash_table_size = n_kmers * (1.0 / 0.5);
-  HashMap hashmap(hash_table_size);
+  hash_table_size = (hash_table_size + upcxx::rank_n() - 1) / upcxx::rank_n() * upcxx:: rank_n();
 
+    // TODO: initialize global memory and collect global pointers
+    upcxx::global_ptr<kmer_pair> local_data_copy = upcxx::new_array<kmer_pair>(hash_table_size);
+    upcxx::global_ptr<int> local_used_copy = upcxx::new_array<int>(hash_table_size);
+    std::vector<upcxx::global_ptr<kmer_pair>> dist_data_ptrs;
+    std::vector<upcxx::global_ptr<int>> dist_used_ptrs;
+    for (int i = 0; i < upcxx::rank_n(); i++) {
+        dist_data_ptrs.push_back(upcxx::broadcast(local_data_copy, i).wait());
+        dist_used_ptrs.push_back(upcxx::broadcast(local_used_copy, i).wait());
+    }
+
+
+  HashMap hashmap(hash_table_size, dist_data_ptrs, dist_used_ptrs);
+    glob_h = & hashmap;
   if (run_type == "verbose") {
     BUtil::print("Initializing hash table of size %d for %d kmers.\n",
       hash_table_size, n_kmers);
   }
+
+    // barrier for after init
+  upcxx::barrier();
 
   std::vector <kmer_pair> kmers = read_kmers(kmer_fname, upcxx::rank_n(), upcxx::rank_me());
 
@@ -67,10 +94,10 @@ int main(int argc, char **argv) {
   std::vector <kmer_pair> start_nodes;
 
   for (auto &kmer : kmers) {
-    bool success = hashmap.insert(kmer);
-    if (!success) {
-      throw std::runtime_error("Error: HashMap is full!");
-    }
+    uint64_t hash = kmer.hash();
+    int node_num = (hash % hashmap.size()) / (hashmap.size() / upcxx::rank_n());
+    upcxx::rpc(node_num, glob_insert, kmer).wait();
+    //hashmap.insert(kmer);
 
     if (kmer.backwardExt() == 'F') {
       start_nodes.push_back(kmer);
