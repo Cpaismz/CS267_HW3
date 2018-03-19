@@ -25,7 +25,6 @@ int main(int argc, char **argv) {
 
 
     /*
-    TODO:
         1) test UPC to see how "shared/distributed" memory works
             - need to be able to BROADCAST a pointer from rank 0 to the world for things to be shared
         2) change hashtable class insert and find to partition the array backing the hashtable across n_proc arrays
@@ -63,7 +62,6 @@ int main(int argc, char **argv) {
   size_t hash_table_size = n_kmers * (1.0  * 3);
   hash_table_size = (hash_table_size + upcxx::rank_n() - 1) / upcxx::rank_n() * upcxx:: rank_n();
 
-    // TODO: initialize global memory and collect global pointers
     upcxx::global_ptr<kmer_pair> local_data_copy = upcxx::new_array<kmer_pair>(hash_table_size);
     std::vector<upcxx::global_ptr<kmer_pair>> dist_data_ptrs;
     for (int i = 0; i < upcxx::rank_n(); i++) {
@@ -108,7 +106,6 @@ int main(int argc, char **argv) {
   upcxx::barrier();
     hashmap.reduce();
     upcxx::barrier();
-  fprintf(stderr, "3\n");
   double insert_time = std::chrono::duration <double> (end_insert - start).count();
   if (run_type != "test") {
     BUtil::print("Finished inserting in %lf\n", insert_time);
