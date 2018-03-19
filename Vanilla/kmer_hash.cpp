@@ -15,8 +15,9 @@
 
 HashMap* glob_h;
 
-void glob_insert(const kmer_pair &kmer) {
+int glob_insert(const kmer_pair &kmer) {
     glob_h->queue(kmer);
+    return 1;
 }
 
 int main(int argc, char **argv) {
@@ -59,21 +60,18 @@ int main(int argc, char **argv) {
 
 
   // Load factor of 0.5
-  size_t hash_table_size = n_kmers * (1.0 / 0.5);
+  size_t hash_table_size = n_kmers * (1.0  * 3);
   hash_table_size = (hash_table_size + upcxx::rank_n() - 1) / upcxx::rank_n() * upcxx:: rank_n();
 
     // TODO: initialize global memory and collect global pointers
     upcxx::global_ptr<kmer_pair> local_data_copy = upcxx::new_array<kmer_pair>(hash_table_size);
-    upcxx::global_ptr<int> local_used_copy = upcxx::new_array<int>(hash_table_size);
     std::vector<upcxx::global_ptr<kmer_pair>> dist_data_ptrs;
-    std::vector<upcxx::global_ptr<int>> dist_used_ptrs;
     for (int i = 0; i < upcxx::rank_n(); i++) {
         dist_data_ptrs.push_back(upcxx::broadcast(local_data_copy, i).wait());
-        dist_used_ptrs.push_back(upcxx::broadcast(local_used_copy, i).wait());
     }
 
 
-  HashMap hashmap(hash_table_size, dist_data_ptrs, dist_used_ptrs);
+  HashMap hashmap(hash_table_size, dist_data_ptrs);
     glob_h = & hashmap;
   if (run_type == "verbose") {
     BUtil::print("Initializing hash table of size %d for %d kmers.\n",
@@ -92,17 +90,20 @@ int main(int argc, char **argv) {
   auto start = std::chrono::high_resolution_clock::now();
 
   std::vector <kmer_pair> start_nodes;
-
+  std::vector<upcxx::future<int>>  rpcs;
   for (auto &kmer : kmers) {
     uint64_t hash = kmer.hash();
     int node_num = (hash % hashmap.size()) / (hashmap.size() / upcxx::rank_n());
-    upcxx::rpc(node_num, glob_insert, kmer).wait();
+    rpcs.push_back(upcxx::rpc(node_num, glob_insert, kmer));
     //hashmap.insert(kmer);
 
     if (kmer.backwardExt() == 'F') {
       start_nodes.push_back(kmer);
     }
   }
+    for (auto && r : rpcs) {
+        r.wait();
+    }
   auto end_insert = std::chrono::high_resolution_clock::now();
   upcxx::barrier();
     hashmap.reduce();
@@ -146,6 +147,7 @@ int main(int argc, char **argv) {
 
   if (run_type != "test") {
     BUtil::print("Assembled in %lf total\n", total.count());
+    BUtil::print("%d total ht accesses on %d tries\n", hashmap.tot_hits, hashmap.num_uses);
   }
 
   if (run_type == "verbose") {

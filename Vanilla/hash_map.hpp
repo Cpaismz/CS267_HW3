@@ -7,14 +7,16 @@
 
 struct HashMap {
     std::vector<upcxx::global_ptr<kmer_pair>> data;
-    std::vector<upcxx::global_ptr<int>> used;
+    std::vector<int> used;
     std::vector<kmer_pair> to_insert;
+    int num_uses;
+    int tot_hits;
   size_t my_size;
   std::mutex lock;
 
   size_t size() const noexcept;
 
-  HashMap(size_t size, std::vector<upcxx::global_ptr<kmer_pair>> _data, std::vector<upcxx::global_ptr<int>> _used);
+  HashMap(size_t size, std::vector<upcxx::global_ptr<kmer_pair>> _data);
 
   // Most important functions: insert and retrieve
   // k-mers from the hash table.
@@ -35,10 +37,12 @@ struct HashMap {
   bool slot_used(uint64_t slot, int node_num);
 };
 
-HashMap::HashMap(size_t size, std::vector<upcxx::global_ptr<kmer_pair>> _data, std::vector<upcxx::global_ptr<int>> _used) {
+HashMap::HashMap(size_t size, std::vector<upcxx::global_ptr<kmer_pair>> _data) {
   my_size = size;
   data = _data;
-  used = _used;
+  used.resize(size, 0);
+  num_uses = 0;
+  tot_hits = 0;
 }
 
 void HashMap::queue(const kmer_pair &kmer) {
@@ -70,26 +74,30 @@ void HashMap::insert(const kmer_pair &kmer) {
 }
 
 bool HashMap::find(const pkmer_t &key_kmer, kmer_pair &val_kmer) {
+    num_uses++;
   uint64_t hash = key_kmer.hash();
   uint64_t probe = 0;
   int node_num = (hash % size()) / (size() / upcxx::rank_n());
   bool success = false;
   do {
     uint64_t slot = (hash + probe++) % size();
-    if (slot_used(slot, node_num)) {
+    //if (slot_used(slot, node_num)) {
       val_kmer = read_slot(slot, node_num);
       if (val_kmer.kmer == key_kmer) {
         success = true;
       }
-    }
+      tot_hits++;
+    //}
   } while (!success && probe < size());
   return success;
 }
 
 bool HashMap::slot_used(uint64_t slot, int node_num) {
+    return used[slot] != 0;
+    /*
     upcxx::future<int> res = upcxx::rget(used[node_num] + slot);
     res.wait();
-    return res.result() != 0;
+    return res.result() != 0;*/
   // return used[slot] != 0;
 }
 
@@ -106,14 +114,19 @@ kmer_pair HashMap::read_slot(uint64_t slot, int node_num) {
 }
 
 bool HashMap::request_slot(uint64_t slot, int node_num) {
+    /*
     upcxx::future<int> res =  upcxx::rget(used[node_num] + slot);
     res.wait();
   if (res.result() != 0) {
-  // if (used[slot] != 0) {
     return false;
   } else {
     upcxx::rput(1, used[node_num] + slot).wait();
-    // used[slot] = 1;
+    return true;
+  }*/
+  if (used[slot] != 0) {
+    return false;
+  } else {
+    used[slot] = 1;
     return true;
   }
 }
