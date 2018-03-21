@@ -39,8 +39,8 @@ int main(int argc, char **argv) {
 
   size_t n_kmers = line_count(kmer_fname);
 
-  // Load factor of 0.33
-  size_t hash_table_size = n_kmers * (1.0  * 3);
+  // Load factor of 0.5
+  size_t hash_table_size = n_kmers * (2);
   hash_table_size = (hash_table_size + upcxx::rank_n() - 1) / upcxx::rank_n() * upcxx:: rank_n();
 
     // TODO: initialize global memory and collect global pointers
